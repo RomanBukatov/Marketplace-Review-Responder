@@ -25,3 +25,5 @@ bld/
 *.csproj.vspscc
 *.vssscc
 .DS_Store
+
+appsettings.Development.json
