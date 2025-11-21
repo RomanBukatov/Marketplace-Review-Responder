@@ -31,7 +31,7 @@ namespace WbAutoresponder.Services
         {
             _logger.LogInformation("Проверяем наличие новых отзывов на Wildberries...");
 
-            var requestUrl = "/api/v1/feedbacks?isAnswered=false&take=10&skip=0";
+            var requestUrl = "/api/v1/feedbacks?isAnswered=false&take=100&skip=0";
             var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
@@ -53,14 +53,27 @@ namespace WbAutoresponder.Services
 
             foreach (var feedback in feedbackResponse.Data.Feedbacks)
             {
-                if (string.IsNullOrWhiteSpace(feedback.Text))
+                // 1. Собираем полный текст из комментария, плюсов и минусов
+                var parts = new List<string>();
+                if (!string.IsNullOrWhiteSpace(feedback.Text)) parts.Add(feedback.Text);
+                if (!string.IsNullOrWhiteSpace(feedback.Pros)) parts.Add($"Достоинства: {feedback.Pros}");
+                if (!string.IsNullOrWhiteSpace(feedback.Cons)) parts.Add($"Недостатки: {feedback.Cons}");
+
+                var fullText = string.Join("\n", parts);
+
+                // 2. Если отзыв СОВСЕМ пустой (нет ни текста, ни плюсов, ни минусов)
+                if (string.IsNullOrWhiteSpace(fullText))
                 {
-                    _logger.LogWarning("Отзыв ID: {FeedbackId} пропущен, так как не содержит текста.", feedback.Id);
+                    _logger.LogWarning("Отзыв ID: {FeedbackId} вообще без текста. Отправляем стандартный ответ, чтобы убрать его из очереди.", feedback.Id);
+                    // ОБЯЗАТЕЛЬНО отвечаем, иначе WB будет присылать этот отзыв вечно, и очередь встанет
+                    await SendResponseAsync(feedback.Id, "Благодарим за высокую оценку!", cancellationToken);
                     continue;
                 }
 
-                var responseText = await _openAiClient.GetResponseForFeedback(feedback.Text, cancellationToken);
-                _logger.LogInformation("Для отзыва '{FeedbackText}' сгенерирован ответ: '{ResponseText}'", feedback.Text, responseText);
+                // 3. Если текст есть — генерируем ответ через OpenAI
+                var responseText = await _openAiClient.GetResponseForFeedback(fullText, cancellationToken);
+                _logger.LogInformation("Для отзыва '{FeedbackText}' сгенерирован ответ: '{ResponseText}'", fullText.Replace("\n", " | "), responseText);
+                
                 if (string.IsNullOrWhiteSpace(responseText))
                 {
                     _logger.LogWarning("OpenAI не сгенерировал ответ для отзыва ID: {FeedbackId}. Пропускаем.", feedback.Id);
