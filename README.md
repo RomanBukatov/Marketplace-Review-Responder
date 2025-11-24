@@ -1,8 +1,8 @@
-# 🤖 WbAutoresponder
+# 🤖 Marketplace Review Responder
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-blue.svg)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/your-username/WbAutoresponder.svg)](https://github.com/your-username/WbAutoresponder/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/RomanBukatov/Marketplace-Review-Responder.svg)](https://github.com/RomanBukatov/Marketplace-Review-Responder/stargazers)
 
 Автоматический ответчик на отзывы для продавцов Wildberries. Использует искусственный интеллект OpenAI для генерации вежливых и профессиональных ответов на отзывы клиентов.
 
@@ -25,8 +25,8 @@
 
 1. **Клонируйте репозиторий:**
    ```bash
-   git clone https://github.com/your-username/WbAutoresponder.git
-   cd WbAutoresponder
+   git clone https://github.com/RomanBukatov/Marketplace-Review-Responder.git
+   cd Marketplace-Review-Responder
    ```
 
 2. **Установите зависимости:**
@@ -147,7 +147,7 @@ dotnet test
 ## 📞 Поддержка
 
 Если у вас возникли проблемы или вопросы:
-- Создайте [Issue](https://github.com/your-username/WbAutoresponder/issues) на GitHub
+- Создайте [Issue](https://github.com/RomanBukatov/Marketplace-Review-Responder/issues) на GitHub
 - Проверьте логи приложения для диагностики
 
 ---
