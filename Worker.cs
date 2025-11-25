@@ -8,15 +8,18 @@ namespace WbAutoresponder
     {
         private readonly ILogger<Worker> _logger;
         private readonly IWildberriesApiClient _wbApiClient;
+        private readonly IOzonApiClient _ozonApiClient;
         private readonly WorkerSettings _workerSettings;
 
         public Worker(
             ILogger<Worker> logger,
             IWildberriesApiClient wbApiClient,
+            IOzonApiClient ozonApiClient,
             IOptions<WorkerSettings> workerSettings)
         {
             _logger = logger;
             _wbApiClient = wbApiClient;
+            _ozonApiClient = ozonApiClient;
             _workerSettings = workerSettings.Value;
         }
 
@@ -33,6 +36,16 @@ namespace WbAutoresponder
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Произошла ошибка при проверке отзывов");
+                }
+
+                // Добавляем вызов Ozon
+                try
+                {
+                    await _ozonApiClient.CheckForNewReviewsAsync(stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Ошибка Ozon");
                 }
                 _logger.LogInformation("\n==================== ЦИКЛ ОБРАБОТКИ ЗАВЕРШЕН ====================\n");
                 
