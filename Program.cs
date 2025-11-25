@@ -9,6 +9,8 @@ builder.Services.Configure<WbAutoresponder.Configuration.WorkerSettings>(builder
 
 // Регистрируем HTTP клиент для Wildberries API
 builder.Services.AddHttpClient<WbAutoresponder.Services.IWildberriesApiClient, WbAutoresponder.Services.WildberriesApiClient>();
+// Регистрируем HTTP клиент для Ozon API
+builder.Services.AddHttpClient<WbAutoresponder.Services.IOzonApiClient, WbAutoresponder.Services.OzonApiClient>();
 // Регистрируем HTTP клиент для OpenAI API
 builder.Services.AddOpenAIService(settings =>
 {
