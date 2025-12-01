@@ -12,6 +12,11 @@ namespace WbAutoresponder.Services
         private readonly ILogger<OzonApiClient> _logger;
         private readonly IOpenAiClient _openAiClient;
         private readonly ApiKeys _apiKeys;
+        
+        // ПАМЯТЬ: Список обработанных ID
+        private static readonly HashSet<string> _processedReviewIds = new();
+        private const string HistoryFileName = "processed_reviews.txt";
+        private static readonly object _fileLock = new();
 
         public OzonApiClient(
             HttpClient httpClient,
@@ -24,25 +29,64 @@ namespace WbAutoresponder.Services
             _openAiClient = openAiClient;
             _apiKeys = apiKeys.Value;
 
-            // Базовый адрес. Заголовки теперь ставим динамически в каждом запросе.
             _httpClient.BaseAddress = new Uri("https://api-seller.ozon.ru");
+            
+            // При запуске загружаем историю, чтобы не отвечать повторно после перезагрузки
+            LoadProcessedIds();
+        }
+
+        private void LoadProcessedIds()
+        {
+            lock (_fileLock)
+            {
+                if (!File.Exists(HistoryFileName)) return;
+                
+                try
+                {
+                    var lines = File.ReadAllLines(HistoryFileName);
+                    foreach (var line in lines)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                            _processedReviewIds.Add(line.Trim());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Не удалось загрузить историю обработанных отзывов.");
+                }
+            }
+        }
+
+        private void SaveProcessedId(string id)
+        {
+            lock (_fileLock)
+            {
+                if (_processedReviewIds.Contains(id)) return;
+
+                _processedReviewIds.Add(id);
+                try
+                {
+                    File.AppendAllText(HistoryFileName, id + Environment.NewLine);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Не удалось сохранить ID отзыва в историю.");
+                }
+            }
         }
 
         public async Task CheckForNewReviewsAsync(CancellationToken cancellationToken)
         {
-            // Проверяем, есть ли хоть один аккаунт
             if (_apiKeys.OzonAccounts == null || _apiKeys.OzonAccounts.Count == 0)
             {
                 _logger.LogWarning("Список аккаунтов Ozon пуст в настройках. Пропускаем.");
                 return;
             }
 
-            // ЦИКЛ ПО ВСЕМ АККАУНТАМ
             foreach (var account in _apiKeys.OzonAccounts)
             {
                 if (string.IsNullOrWhiteSpace(account.ClientId) || string.IsNullOrWhiteSpace(account.ApiKey))
                 {
-                    _logger.LogWarning("Найден аккаунт Ozon с пустыми ключами. Пропускаем.");
                     continue;
                 }
 
@@ -56,7 +100,6 @@ namespace WbAutoresponder.Services
             try
             {
                 var requestDTO = new OzonReviewListRequest();
-                // Используем наш метод отправки с авторизацией
                 var response = await SendJsonRequestAsync("/v1/review/list", requestDTO, account, cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
@@ -74,10 +117,17 @@ namespace WbAutoresponder.Services
                     return;
                 }
 
-                _logger.LogInformation("Найдено {Count} новых отзывов.", ozonData.Reviews.Count);
+                _logger.LogInformation("Найдено {Count} отзывов (включая уже обработанные).", ozonData.Reviews.Count);
 
                 foreach (var review in ozonData.Reviews)
                 {
+                    // ЗАЩИТА ОТ ДУБЛЕЙ: Проверяем, есть ли ID в нашей памяти
+                    if (_processedReviewIds.Contains(review.Id))
+                    {
+                        // _logger.LogInformation("Отзыв {Id} уже был обработан нами ранее. Пропускаем.", review.Id);
+                        continue;
+                    }
+
                     await ProcessReviewAsync(review, account, cancellationToken);
                 }
             }
@@ -89,16 +139,18 @@ namespace WbAutoresponder.Services
 
         private async Task ProcessReviewAsync(OzonReview review, OzonAccountCredentials account, CancellationToken cancellationToken)
         {
-            // Текст теперь приходит одной строкой
             var fullText = review.Text;
 
+            // 1. ПУСТОЙ ОТЗЫВ
             if (string.IsNullOrWhiteSpace(fullText))
             {
                 _logger.LogWarning("Отзыв Ozon ID: {Id} пустой. Отправляем заглушку.", review.Id);
-                await SendAnswerAsync(review.Id, "Благодарим за высокую оценку!", account, cancellationToken);
+                bool success = await SendAnswerAsync(review.Id, "Благодарим за высокую оценку!", account, cancellationToken);
+                if (success) SaveProcessedId(review.Id); // Запоминаем!
                 return;
             }
 
+            // 2. ГЕНЕРАЦИЯ ОТВЕТА
             var aiResponse = await _openAiClient.GetResponseForFeedback(fullText, cancellationToken);
             
             if (string.IsNullOrWhiteSpace(aiResponse))
@@ -109,41 +161,51 @@ namespace WbAutoresponder.Services
 
             _logger.LogInformation("Для отзыва '{Text}' сгенерирован ответ: '{Answer}'", fullText.Replace("\n", "|"), aiResponse);
 
-            await SendAnswerAsync(review.Id, aiResponse, account, cancellationToken);
+            // 3. ОТПРАВКА
+            bool sent = await SendAnswerAsync(review.Id, aiResponse, account, cancellationToken);
+            
+            // 4. ЗАПОМИНАЕМ, ЧТО ОТВЕТИЛИ
+            if (sent)
+            {
+                SaveProcessedId(review.Id);
+            }
         }
 
-        private async Task SendAnswerAsync(string reviewId, string text, OzonAccountCredentials account, CancellationToken cancellationToken)
+        private async Task<bool> SendAnswerAsync(string reviewId, string text, OzonAccountCredentials account, CancellationToken cancellationToken)
         {
             try
             {
+                // Используем ПРАВИЛЬНОЕ имя поля review_id (как мы выяснили опытным путем)
                 var answerRequest = new OzonAnswerRequest(reviewId, text);
+                
+                // Используем ПРАВИЛЬНЫЙ метод
                 var response = await SendJsonRequestAsync("/v1/review/comment/create", answerRequest, account, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logger.LogInformation("Ответ на отзыв Ozon {Id} отправлен.", reviewId);
+                    _logger.LogInformation("Ответ на отзыв Ozon {Id} успешно отправлен.", reviewId);
+                    return true;
                 }
                 else
                 {
+                    // Логируем ошибку, но не тело (чтобы не засорять)
                     _logger.LogError("Ошибка отправки в Ozon ({ClientId}): {StatusCode}", account.ClientId, response.StatusCode);
+                    return false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при отправке ответа.");
+                _logger.LogError(ex, "Критическая ошибка при отправке ответа.");
+                return false;
             }
         }
 
-        // Вспомогательный метод для создания запроса с правильными заголовками
         private async Task<HttpResponseMessage> SendJsonRequestAsync(string uri, object content, OzonAccountCredentials account, CancellationToken cancellationToken)
         {
             var json = JsonSerializer.Serialize(content);
             var requestMessage = new HttpRequestMessage(HttpMethod.Post, uri);
-            
-            // Добавляем заголовки КОНКРЕТНОГО аккаунта
             requestMessage.Headers.Add("Client-Id", account.ClientId);
             requestMessage.Headers.Add("Api-Key", account.ApiKey);
-            
             requestMessage.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
             return await _httpClient.SendAsync(requestMessage, cancellationToken);
