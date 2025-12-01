@@ -24,40 +24,27 @@ namespace WbAutoresponder.DTOs.Ozon
     // --- ОТВЕТ СО СПИСКОМ ОТЗЫВОВ ---
     public class OzonReviewListResponse
     {
-        [JsonPropertyName("result")]
-        public OzonResult Result { get; set; } = new();
-    }
-
-    public class OzonResult
-    {
         [JsonPropertyName("reviews")]
         public List<OzonReview> Reviews { get; set; } = [];
+
+        [JsonPropertyName("has_next")]
+        public bool HasNext { get; set; }
     }
+
+    // Класс OzonResult больше не нужен, удали его.
 
     public class OzonReview
     {
-        [JsonPropertyName("uuid")]
+        [JsonPropertyName("id")] // ИСПРАВЛЕНО: было uuid, стало id
         public string Id { get; set; } = string.Empty;
 
         [JsonPropertyName("text")]
-        public OzonReviewText Text { get; set; } = new();
+        public string Text { get; set; } = string.Empty;
 
         [JsonPropertyName("product")]
         public OzonProductInfo Product { get; set; } = new();
     }
 
-    public class OzonReviewText
-    {
-        [JsonPropertyName("comment")]
-        public string Comment { get; set; } = string.Empty;
-
-        [JsonPropertyName("positive_comment")]
-        public string Positive { get; set; } = string.Empty;
-
-        [JsonPropertyName("negative_comment")]
-        public string Negative { get; set; } = string.Empty;
-    }
-    
     public class OzonProductInfo
     {
         [JsonPropertyName("title")]
@@ -67,7 +54,7 @@ namespace WbAutoresponder.DTOs.Ozon
     // --- ОТПРАВКА ОТВЕТА ---
     public class OzonAnswerRequest
     {
-        [JsonPropertyName("review_uuid")]
+        [JsonPropertyName("review_id")]
         public string ReviewId { get; set; }
 
         [JsonPropertyName("text")]

@@ -68,15 +68,15 @@ namespace WbAutoresponder.Services
                 var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
                 var ozonData = await JsonSerializer.DeserializeAsync<OzonReviewListResponse>(stream, cancellationToken: cancellationToken);
 
-                if (ozonData?.Result.Reviews.Count == 0)
+                if (ozonData?.Reviews.Count == 0)
                 {
                     _logger.LogInformation("Новых отзывов нет.");
                     return;
                 }
 
-                _logger.LogInformation("Найдено {Count} новых отзывов.", ozonData.Result.Reviews.Count);
+                _logger.LogInformation("Найдено {Count} новых отзывов.", ozonData.Reviews.Count);
 
-                foreach (var review in ozonData.Result.Reviews)
+                foreach (var review in ozonData.Reviews)
                 {
                     await ProcessReviewAsync(review, account, cancellationToken);
                 }
@@ -89,12 +89,8 @@ namespace WbAutoresponder.Services
 
         private async Task ProcessReviewAsync(OzonReview review, OzonAccountCredentials account, CancellationToken cancellationToken)
         {
-            var parts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(review.Text.Comment)) parts.Add(review.Text.Comment);
-            if (!string.IsNullOrWhiteSpace(review.Text.Positive)) parts.Add($"Достоинства: {review.Text.Positive}");
-            if (!string.IsNullOrWhiteSpace(review.Text.Negative)) parts.Add($"Недостатки: {review.Text.Negative}");
-
-            var fullText = string.Join("\n", parts);
+            // Текст теперь приходит одной строкой
+            var fullText = review.Text;
 
             if (string.IsNullOrWhiteSpace(fullText))
             {
@@ -121,7 +117,7 @@ namespace WbAutoresponder.Services
             try
             {
                 var answerRequest = new OzonAnswerRequest(reviewId, text);
-                var response = await SendJsonRequestAsync("/v1/review/interact", answerRequest, account, cancellationToken);
+                var response = await SendJsonRequestAsync("/v1/review/comment/create", answerRequest, account, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
                 {
